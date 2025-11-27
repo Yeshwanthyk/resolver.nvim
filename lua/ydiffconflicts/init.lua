@@ -141,33 +141,56 @@ end
 local function populate_quickfix()
   local files = get_conflicted_files()
   if #files == 0 then
-    vim.notify("No conflicted files found", vim.log.levels.INFO)
+    vim.notify("All conflicts resolved!", vim.log.levels.INFO)
+    vim.fn.setqflist({}, "r")
     return false
   end
 
+  -- Check which files are staged (resolved)
+  local staged_output = vim.fn.system("git diff --cached --name-only 2>/dev/null")
+  local staged = {}
+  for file in staged_output:gmatch("[^\n]+") do
+    staged[file] = true
+  end
+  local root = get_git_root()
+
   local items = {}
+  local resolved_count = 0
   for _, filepath in ipairs(files) do
     local count = count_conflicts_in_file(filepath)
-    local f = io.open(filepath, "r")
-    if f then
-      local lnum = 1
-      for line in f:lines() do
-        if line:match(MARKER_START) then
-          table.insert(items, {
-            filename = filepath,
-            lnum = lnum,
-            text = count .. " conflict" .. (count > 1 and "s" or ""),
-          })
-          break
+    local relpath = filepath:gsub("^" .. vim.pesc(root) .. "/", "")
+    local is_resolved = staged[relpath] or false
+    
+    if is_resolved then
+      resolved_count = resolved_count + 1
+      table.insert(items, {
+        filename = filepath,
+        lnum = 1,
+        text = "✓ resolved",
+      })
+    else
+      local f = io.open(filepath, "r")
+      if f then
+        local lnum = 1
+        for line in f:lines() do
+          if line:match(MARKER_START) then
+            table.insert(items, {
+              filename = filepath,
+              lnum = lnum,
+              text = count .. " conflict" .. (count > 1 and "s" or ""),
+            })
+            break
+          end
+          lnum = lnum + 1
         end
-        lnum = lnum + 1
+        f:close()
       end
-      f:close()
     end
   end
 
   vim.fn.setqflist(items, "r")
-  vim.fn.setqflist({}, "a", { title = "Git Conflicts (" .. #items .. " files)" })
+  local title = string.format("Git Conflicts (%d/%d resolved)", resolved_count, #items)
+  vim.fn.setqflist({}, "a", { title = title })
   return true
 end
 
@@ -244,25 +267,22 @@ end
 
 local function choose_side(side)
   local orig_buf = vim.api.nvim_get_current_buf()
+  local filepath = vim.api.nvim_buf_get_name(orig_buf)
   
   if side == "ours" then
-    close_diff_view()
-    vim.notify("Kept OURS", vim.log.levels.INFO)
+    -- Already showing ours, nothing to do
+    vim.notify("Kept OURS - edit or :w to save", vim.log.levels.INFO)
   elseif side == "theirs" then
     vim.cmd("%diffget")
-    close_diff_view()
-    vim.notify("Took THEIRS", vim.log.levels.INFO)
+    vim.cmd("diffupdate")
+    vim.notify("Took THEIRS - edit or :w to save", vim.log.levels.INFO)
   elseif side == "both" then
     -- Read original file with conflict markers
-    local filepath = vim.api.nvim_buf_get_name(orig_buf)
     local orig_lines = vim.fn.readfile(filepath)
     local both_lines = extract_both(orig_lines)
-    
-    close_diff_view()
-    
-    -- Replace buffer with combined content
     vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, both_lines)
-    vim.notify("Combined OURS + THEIRS", vim.log.levels.INFO)
+    vim.cmd("diffupdate")
+    vim.notify("Combined OURS + THEIRS - edit or :w to save", vim.log.levels.INFO)
   end
 end
 
@@ -279,6 +299,24 @@ local function mark_resolved()
   vim.fn.system("git add " .. vim.fn.shellescape(file))
   vim.notify("✓ " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
   populate_quickfix()
+end
+
+local function unresolve()
+  close_diff_view()
+  
+  local file = vim.fn.expand("%:p")
+  -- Restore conflict markers using git checkout --conflict
+  vim.fn.system("git checkout --conflict=merge " .. vim.fn.shellescape(file))
+  vim.cmd("edit!")  -- Reload from disk
+  vim.notify("Restored conflict markers", vim.log.levels.INFO)
+  populate_quickfix()
+  
+  -- Re-open diff view
+  vim.schedule(function()
+    if has_conflicts() then
+      open_diff_view()
+    end
+  end)
 end
 
 local function next_conflict_file()
@@ -338,6 +376,7 @@ vim.api.nvim_create_user_command("YDiffOurs", function() choose_side("ours") end
 vim.api.nvim_create_user_command("YDiffTheirs", function() choose_side("theirs") end, { desc = "Take THEIRS" })
 vim.api.nvim_create_user_command("YDiffBoth", function() choose_side("both") end, { desc = "Restore original" })
 vim.api.nvim_create_user_command("YDiffResolved", mark_resolved, { desc = "Mark resolved (git add)" })
+vim.api.nvim_create_user_command("YDiffUnresolve", unresolve, { desc = "Restore conflict markers" })
 vim.api.nvim_create_user_command("YDiffNext", next_conflict_file, { desc = "Next conflict file" })
 vim.api.nvim_create_user_command("YDiffPrev", prev_conflict_file, { desc = "Prev conflict file" })
 vim.api.nvim_create_user_command("YDiffAbort", abort, { desc = "Abort merge" })
