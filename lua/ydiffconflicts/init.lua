@@ -152,6 +152,52 @@ vim.api.nvim_create_user_command("YDiffRestore", restore, {})
 vim.api.nvim_create_user_command("YDiffConflicts", open_diff, {})
 vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_diff, {})
 
+--------------------------------------------------------------------------------
+-- Picker (requires snacks.nvim)
+--------------------------------------------------------------------------------
+
+local function get_conflicted_files()
+  local root = vim.trim(vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"))
+  if root == "" then return {} end
+  local output = vim.fn.system("git diff --name-only --diff-filter=U 2>/dev/null")
+  local files = {}
+  for file in output:gmatch("[^\n]+") do
+    if file ~= "" then
+      table.insert(files, { file = root .. "/" .. file, text = file })
+    end
+  end
+  return files
+end
+
+local function open_picker()
+  local ok, Snacks = pcall(require, "snacks")
+  if not ok then
+    vim.notify("snacks.nvim not installed", vim.log.levels.ERROR)
+    return
+  end
+
+  local files = get_conflicted_files()
+  if #files == 0 then
+    vim.notify("No conflicted files", vim.log.levels.INFO)
+    return
+  end
+
+  Snacks.picker({
+    title = "Conflicts",
+    items = files,
+    format = function(item)
+      return { { item.text, "SnacksPickerFile" } }
+    end,
+    confirm = function(picker, item)
+      picker:close()
+      vim.cmd("edit " .. vim.fn.fnameescape(item.file))
+      vim.schedule(open_diff)
+    end,
+  })
+end
+
+vim.api.nvim_create_user_command("YDiffPick", open_picker, {})
+
 -- Keymaps in diff mode
 vim.api.nvim_create_autocmd("OptionSet", {
   pattern = "diff",
