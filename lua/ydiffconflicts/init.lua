@@ -190,7 +190,10 @@ local function close_diff()
             vim.api.nvim_win_close(win, true)
           end
         end
-        vim.api.nvim_buf_delete(buf, { force = true })
+        -- Buffer may have been wiped when window closed (bufhidden=wipe)
+        if vim.api.nvim_buf_is_valid(buf) then
+          vim.api.nvim_buf_delete(buf, { force = true })
+        end
       end
     end
   end
