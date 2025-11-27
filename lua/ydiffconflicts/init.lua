@@ -103,6 +103,7 @@ local function open_diff()
 
   -- Back to OURS
   vim.cmd("wincmd h")
+  vim.cmd("diffupdate")
   
   -- Set keymaps on the OURS buffer
   local o = { buffer = true, silent = true }
