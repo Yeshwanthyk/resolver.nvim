@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Vim/Neovim
+*.swp
+*.swo
+*~
+tags
+
+# Test artifacts
+/tmp/
