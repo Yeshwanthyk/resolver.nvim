@@ -111,7 +111,7 @@ local function open_diff()
   vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", o)
   vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", o)
   vim.keymap.set("n", "<leader>cr", "<cmd>YDiffRestore<cr>", o)
-  vim.keymap.set("n", "<leader>cp", "<cmd>YDiffPick<cr>", o)
+  vim.keymap.set("n", "<leader>cc", "<cmd>YDiffPick<cr>", o)
   
   vim.notify("OURS | THEIRS. <leader>co/ct/cb/cr to choose. :w saves.", vim.log.levels.INFO)
 end
