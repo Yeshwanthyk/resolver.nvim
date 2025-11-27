@@ -87,10 +87,12 @@ git resolve
 | Command | Description |
 |---------|-------------|
 | `:YDiffList` | Open quickfix with all conflicts, start resolving |
-| `:YDiffOpen` | Open two-way diff for current file |
+| `:YDiff` | Open two-way diff (OURS vs THEIRS) |
+| `:YDiff3` | Open three-way diff (needs diff3/zdiff3 style) |
 | `:YDiffClose` | Close the diff view |
-| `:YDiffOurs` | Keep ours (left side), close diff |
-| `:YDiffTheirs` | Take theirs (right side), close diff |
+| `:YDiffOurs` | Keep OURS, close diff |
+| `:YDiffTheirs` | Take THEIRS, close diff |
+| `:YDiffBoth` | Restore original to manually combine |
 | `:YDiffResolved` | Save and mark resolved (`git add`) |
 
 ### Keymaps (in diff view)
@@ -99,9 +101,10 @@ git resolve
 |-----|--------|
 | `]c` / `[c` | Next/prev diff hunk (vim builtin) |
 | `:diffget` | Pull hunk from THEIRS |
-| `<leader>co` | Keep all ours |
-| `<leader>ct` | Take all theirs |
-| `<leader>cd` | Mark resolved |
+| `<leader>co` | Keep OURS |
+| `<leader>ct` | Take THEIRS |
+| `<leader>cb` | Restore original (both) |
+| `<leader>cw` | Write/resolved |
 
 ## How It Works
 
