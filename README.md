@@ -10,8 +10,20 @@ Based on [vim-diffconflicts](https://github.com/whiteinge/diffconflicts) by Seth
 
 ```lua
 {
-  dir = "~/path/to/resolver",
+  "Yeshwanthyk/resolver.nvim",
 }
+```
+
+### packer.nvim
+
+```lua
+use "Yeshwanthyk/resolver.nvim"
+```
+
+### vim-plug
+
+```vim
+Plug 'Yeshwanthyk/resolver.nvim'
 ```
 
 ## Usage
