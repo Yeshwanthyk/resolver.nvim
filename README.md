@@ -60,45 +60,48 @@ git config --global mergetool.ydiffconflicts.keepBackup false
 
 ## Usage
 
-When you hit a merge conflict:
+After a failed merge:
 
 ```bash
-git mergetool
+nvim -c YDiffList
 ```
 
-This opens Neovim with:
-- **Tab 1**: Two-way diff — OURS (left, editable) vs THEIRS (right, read-only)
-- **Tab 2**: History view — LOCAL | BASE | REMOTE (all read-only, for reference)
+Or add a git alias:
+
+```bash
+git config --global alias.resolve '!nvim -c YDiffList'
+git resolve
+```
 
 ### Workflow
 
-1. Conflicts open in a two-way diff view
-2. Edit the **left side** to resolve conflicts
-3. Use `:diffget` / `:diffput` or manual editing
-4. Save with `:w` and quit with `:q`
-5. Use `:cq` to abort (tells Git the merge failed)
+1. `:YDiffList` opens quickfix with all conflicted files
+2. First file auto-opens in two-way diff: **OURS (left, editable)** vs **THEIRS (right, read-only)**
+3. Use `:diffget` to pull changes from THEIRS, or edit OURS directly
+4. Use `]c` / `[c` to jump between diff hunks
+5. `:w` to save, then `:YDiffResolved` to mark done (runs `git add`)
+6. `:cnext` to move to next file, `:YDiffOpen` to start diff view
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `:YDiffConflicts` | Convert conflict markers to two-way diff |
-| `:YDiffConflictsShowHistory` | Open LOCAL \| BASE \| REMOTE in a new tab |
-| `:YDiffConflictsWithHistory` | Both: two-way diff + history tab |
+| `:YDiffList` | Open quickfix with all conflicts, start resolving |
+| `:YDiffOpen` | Open two-way diff for current file |
+| `:YDiffClose` | Close the diff view |
+| `:YDiffOurs` | Keep ours (left side), close diff |
+| `:YDiffTheirs` | Take theirs (right side), close diff |
+| `:YDiffResolved` | Save and mark resolved (`git add`) |
 
-### Keybindings (suggestions)
+### Keymaps (in diff view)
 
-Add to your Neovim config:
-
-```lua
--- Get change from other side
-vim.keymap.set('n', '<leader>dg', ':diffget<CR>')
--- Put change to other side  
-vim.keymap.set('n', '<leader>dp', ':diffput<CR>')
--- Next/prev conflict
-vim.keymap.set('n', ']c', ']c')
-vim.keymap.set('n', '[c', '[c')
-```
+| Key | Action |
+|-----|--------|
+| `]c` / `[c` | Next/prev diff hunk (vim builtin) |
+| `:diffget` | Pull hunk from THEIRS |
+| `<leader>co` | Keep all ours |
+| `<leader>ct` | Take all theirs |
+| `<leader>cd` | Mark resolved |
 
 ## How It Works
 

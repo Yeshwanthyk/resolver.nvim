@@ -1,66 +1,75 @@
-*ydiffconflicts.txt*	A better Vimdiff Git mergetool (Lua port)
+*ydiffconflicts.txt*	Two-way diff for Git merge conflicts
 
-A Neovim plugin that converts a file containing Git conflict markers into
-a two-way diff. This is a pure Lua rewrite of vim-diffconflicts by Seth House.
+INTRODUCTION                                      *ydiffconflicts*
+
+A Neovim plugin that shows merge conflicts as a two-way diff:
+OURS (left, editable) vs THEIRS (right, read-only).
+
+Based on vim-diffconflicts by Seth House.
 
 ==============================================================================
-INSTALLATION                                      *ydiffconflicts-installation*
+QUICK START                                       *ydiffconflicts-quickstart*
 
-Configure this plugin as a Git mergetool:
-
->bash
-    git config --global merge.tool ydiffconflicts
-    git config --global merge.conflictStyle zdiff3
-    git config --global mergetool.ydiffconflicts.cmd 'nvim -c "YDiffConflictsWithHistory" "$MERGED" "$LOCAL" "$BASE" "$REMOTE"'
-    git config --global mergetool.ydiffconflicts.trustExitCode true
-    git config --global mergetool.keepBackup false
+After a failed merge: >
+    nvim -c YDiffList
 <
+Or with a git alias: >
+    git config --global alias.resolve '!nvim -c YDiffList'
+    git resolve
+<
+==============================================================================
+COMMANDS                                          *ydiffconflicts-commands*
+
+:YDiffList                                        *:YDiffList*
+    Open quickfix with all conflicted files and start resolving.
+    Auto-opens two-way diff for the first file.
+
+:YDiffOpen                                        *:YDiffOpen*
+    Open two-way diff view for the current file.
+    Left = OURS (edit this), Right = THEIRS (read-only reference).
+
+:YDiffClose                                       *:YDiffClose*
+    Close the diff view and THEIRS buffer.
+
+:YDiffOurs                                        *:YDiffOurs*
+    Keep ours (left side) and close diff view.
+
+:YDiffTheirs                                      *:YDiffTheirs*
+    Take theirs (right side) via :diffget and close diff view.
+
+:YDiffResolved                                    *:YDiffResolved*
+    Save file and mark as resolved (runs `git add`).
 
 ==============================================================================
-COMMANDS                                              *ydiffconflicts-commands*
+WORKFLOW                                          *ydiffconflicts-workflow*
 
-:YDiffConflicts                                            *:YDiffConflicts*
-	Convert a file containing Git conflict markers into a two-way diff.
-	Left side = OURS (editable), Right side = THEIRS (read-only).
-
-:YDiffConflictsShowHistory                        *:YDiffConflictsShowHistory*
-	Open a new tab containing LOCAL | BASE | REMOTE versions of the
-	conflicted file for reference.
-
-:YDiffConflictsWithHistory                        *:YDiffConflictsWithHistory*
-	Call both YDiffConflicts and YDiffConflictsShowHistory. This is the
-	recommended command for the Git mergetool configuration.
+1. Run :YDiffList to see all conflicted files
+2. Two-way diff opens automatically
+3. Edit the left side (OURS) to resolve
+4. Use |:diffget| to pull changes from THEIRS
+5. Use |]c| and |[c| to jump between diff hunks
+6. :w to save, then :YDiffResolved to stage
+7. :cnext for next file, :YDiffOpen to start diff
 
 ==============================================================================
-WORKFLOW                                              *ydiffconflicts-workflow*
+KEYMAPS                                           *ydiffconflicts-keymaps*
 
-1. Run `git mergetool` when you have conflicts
-2. Tab 1 shows two-way diff: OURS (left) vs THEIRS (right)
-3. Tab 2 shows history: LOCAL | BASE | REMOTE
-4. Edit the left side to resolve conflicts
-5. Use |:diffget| and |:diffput| for quick changes
-6. Save with |:w| and quit with |:q|
-7. Use |:cq| to abort (tells Git the merge failed)
+These are set automatically when in diff mode:
 
-==============================================================================
-CONFLICT STYLES                                *ydiffconflicts-conflict-styles*
+<leader>co    Keep ours (calls :YDiffOurs)
+<leader>ct    Take theirs (calls :YDiffTheirs)
+<leader>cd    Mark resolved (calls :YDiffResolved)
 
-The plugin auto-detects your Git conflict style:
-
-- merge (default): Shows OURS and THEIRS
-- diff3: Also shows BASE in conflict markers  
-- zdiff3 (recommended): Like diff3 but cleaner
-
-Set with: `git config --global merge.conflictStyle zdiff3`
+Standard vim diff mappings also work:
+]c            Next diff hunk
+[c            Previous diff hunk
+:diffget      Get hunk from other buffer
 
 ==============================================================================
-CREDITS                                                *ydiffconflicts-credits*
+CREDITS                                           *ydiffconflicts-credits*
 
 Original vim-diffconflicts by Seth House:
 https://github.com/whiteinge/diffconflicts
-
-Video demonstration of the concept:
-https://www.youtube.com/watch?v=Pxgl3Wtf78Y
 
 ==============================================================================
 vim:tw=78:ts=8:ft=help:norl:

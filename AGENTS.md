@@ -1,107 +1,55 @@
 # AGENTS.md — ydiffconflicts.nvim
 
-## Project Overview
+## Overview
 
-A Neovim plugin that converts Git merge conflict markers into a two-way diff view for easier conflict resolution.
+Two-way diff viewer for Git merge conflicts. Opens all conflicted files in quickfix, then shows OURS vs THEIRS side-by-side.
 
-## Architecture
+## Files
 
 ```
-ydiffconflicts/
-├── lua/ydiffconflicts/
-│   └── init.lua          # Core plugin logic
-├── plugin/
-│   └── ydiffconflicts.lua # Plugin loader (lazy-load guard)
-├── README.md
-└── AGENTS.md
+lua/ydiffconflicts/init.lua   # All logic (~200 lines)
+plugin/ydiffconflicts.lua     # Loader
 ```
 
-## Key Functions (`lua/ydiffconflicts/init.lua`)
+## Key Functions
 
 | Function | Purpose |
 |----------|---------|
-| `has_conflicts()` | Scans buffer for `<<<<<<<` markers |
-| `get_conflict_style()` | Detects `merge`, `diff3`, or `zdiff3` from git config |
-| `diffconflicts()` | Main logic: splits into OURS (left) / THEIRS (right) diff |
-| `find_buf(pattern)` | Finds buffer by name pattern (LOCAL, BASE, REMOTE) |
-| `show_history()` | Opens LOCAL \| BASE \| REMOTE in a new tab |
-| `cmd_diff()` | `:YDiffConflicts` command handler |
-| `cmd_with_history()` | `:YDiffConflictsWithHistory` command handler |
+| `get_conflicted_files()` | Runs `git diff --name-only --diff-filter=U` |
+| `populate_quickfix()` | Builds quickfix list with conflict counts |
+| `open_diff_view()` | Creates OURS (left) / THEIRS (right) split |
+| `close_diff_view()` | Closes THEIRS buffer, turns off diff mode |
+| `choose_all(side)` | Takes ours or theirs entirely |
+| `mark_resolved()` | Saves file and runs `git add` |
+| `start()` | Main entry: quickfix + auto-open first file |
 
-## Commands Registered
+## Commands
 
-- `:YDiffConflicts` — Two-way diff only
-- `:YDiffConflictsShowHistory` — History tab only
-- `:YDiffConflictsWithHistory` — Both (default for mergetool)
+- `:YDiffList` — Start resolving (quickfix + first file)
+- `:YDiffOpen` — Open diff view for current file
+- `:YDiffClose` — Close diff view
+- `:YDiffOurs` — Keep ours
+- `:YDiffTheirs` — Take theirs
+- `:YDiffResolved` — Mark file resolved
 
-## Conflict Marker Parsing
+## How Two-Way Diff Works
 
-The plugin uses Vim regex to strip markers:
-
-```
-<<<<<<< ours
-our changes
-||||||| base (only in diff3/zdiff3)
-original
-=======
-their changes
->>>>>>> theirs
-```
-
-- **Left buffer (ours)**: Deletes from `=======` to `>>>>>>>` (or `|||||||` to `>>>>>>>` for diff3)
-- **Right buffer (theirs)**: Deletes from `<<<<<<<` to `=======`
-
-## Testing Changes
-
-1. Create a merge conflict:
-   ```bash
-   git checkout -b test-branch
-   echo "change" > file.txt && git commit -am "change"
-   git checkout main
-   echo "other" > file.txt && git commit -am "other"
-   git merge test-branch  # creates conflict
-   ```
-
-2. Run mergetool:
-   ```bash
-   git mergetool
-   ```
-
-3. Or test directly in Neovim on a file with conflict markers:
-   ```vim
-   :YDiffConflicts
-   ```
-
-## Dependencies
-
-- Neovim 0.7+ (uses `vim.api`, `vim.cmd`, `vim.bo`)
-- Git (for `git config --get merge.conflictStyle`)
+1. Copy buffer lines to new THEIRS buffer
+2. Strip conflict markers differently for each side:
+   - OURS: Remove `=======` through `>>>>>>>` (and `|||||||` in diff3)
+   - THEIRS: Remove `<<<<<<<` through `=======`
+3. Run `:diffthis` on both
+4. User edits OURS, uses `:diffget` to pull from THEIRS
+5. Save writes back to original file
 
 ## Testing
 
-Use the test script to create a repo with conflicts:
-
 ```bash
-./test/make-conflicts.sh /tmp/test-conflicts
-cd /tmp/test-conflicts
-git mergetool
+./test/make-conflicts.sh /tmp/test
+cd /tmp/test
+nvim -c YDiffList
 ```
-
-## Common Modifications
-
-### Add a new command
-```lua
-vim.api.nvim_create_user_command('YDiffConflictsNew', function()
-  -- your logic
-end, {})
-```
-
-### Change default behavior
-Edit `cmd_with_history()` in `init.lua`
-
-### Add keybindings
-The plugin doesn't set keybindings by default. Users add their own in their Neovim config.
 
 ## Origin
 
-Lua port of [vim-diffconflicts](https://github.com/whiteinge/diffconflicts) by Seth House (BSD 3-Clause license).
+Lua port of [vim-diffconflicts](https://github.com/whiteinge/diffconflicts) by Seth House.
