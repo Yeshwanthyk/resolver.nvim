@@ -1,4 +1,4 @@
--- ydiffconflicts.nvim - Two-way diff for Git merge conflicts
+-- resolver.nvim - Two-way diff for Git merge conflicts
 
 local MARKER_START = "^<<<<<<< "
 local MARKER_ANCESTOR = "^||||||| "
@@ -111,28 +111,24 @@ local function open_diff()
   vim.bo[theirs_buf].modifiable = false
   vim.cmd("diffthis")
 
-  -- Back to OURS and ensure diff is active
+  -- Back to OURS
   vim.cmd("wincmd h")
   vim.cmd("diffthis")
-  
-  -- Force diff update after a tick
-  vim.schedule(function()
-    vim.cmd("diffupdate")
-  end)
+  vim.schedule(function() vim.cmd("diffupdate") end)
   
   local o = { buffer = true, silent = true }
-  vim.keymap.set("n", "<leader>mo", "<cmd>YDiffOurs<cr>", o)
-  vim.keymap.set("n", "<leader>mt", "<cmd>YDiffTheirs<cr>", o)
-  vim.keymap.set("n", "<leader>mb", "<cmd>YDiffBoth<cr>", o)
-  vim.keymap.set("n", "<leader>mr", "<cmd>YDiffRestore<cr>", o)
-  vim.keymap.set("n", "<leader>mp", "<cmd>YDiffPick<cr>", o)
+  vim.keymap.set("n", "<leader>mo", "<cmd>ResolveOurs<cr>", o)
+  vim.keymap.set("n", "<leader>mt", "<cmd>ResolveTheirs<cr>", o)
+  vim.keymap.set("n", "<leader>mb", "<cmd>ResolveBoth<cr>", o)
+  vim.keymap.set("n", "<leader>mr", "<cmd>ResolveRestore<cr>", o)
+  vim.keymap.set("n", "<leader>mp", "<cmd>ResolvePick<cr>", o)
   
   vim.notify("OURS | THEIRS. <leader>mo/mt/mb/mr/mp", vim.log.levels.INFO)
 end
 
 local function choose(side)
   if not orig_lines then
-    vim.notify("Run :YDiff first", vim.log.levels.WARN)
+    vim.notify("Run :Resolve first", vim.log.levels.WARN)
     return
   end
   if side == "ours" then
@@ -202,12 +198,12 @@ end
 -- Commands
 --------------------------------------------------------------------------------
 
-vim.api.nvim_create_user_command("YDiff", open_diff, {})
-vim.api.nvim_create_user_command("YDiffClose", close_diff, {})
-vim.api.nvim_create_user_command("YDiffOurs", function() choose("ours") end, {})
-vim.api.nvim_create_user_command("YDiffTheirs", function() choose("theirs") end, {})
-vim.api.nvim_create_user_command("YDiffBoth", function() choose("both") end, {})
-vim.api.nvim_create_user_command("YDiffRestore", restore, {})
-vim.api.nvim_create_user_command("YDiffPick", open_picker, {})
+vim.api.nvim_create_user_command("Resolve", open_diff, {})
+vim.api.nvim_create_user_command("ResolveClose", close_diff, {})
+vim.api.nvim_create_user_command("ResolveOurs", function() choose("ours") end, {})
+vim.api.nvim_create_user_command("ResolveTheirs", function() choose("theirs") end, {})
+vim.api.nvim_create_user_command("ResolveBoth", function() choose("both") end, {})
+vim.api.nvim_create_user_command("ResolveRestore", restore, {})
+vim.api.nvim_create_user_command("ResolvePick", open_picker, {})
 
 return {}
