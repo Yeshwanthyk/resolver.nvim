@@ -115,20 +115,22 @@ local function close_diff_view()
   vim.cmd("diffoff!")
 end
 
-local function extract_ours(lines, style)
+-- State machine for parsing conflict markers
+-- States: NORMAL, OURS, BASE, THEIRS
+local function extract_ours(lines)
   local result = {}
-  local in_conflict = false
-  local skip_until_end = false
+  local state = "NORMAL"
   
   for _, line in ipairs(lines) do
     if line:match(MARKER_START) then
-      in_conflict = true
-    elseif in_conflict and (line:match(MARKER_ANCESTOR) or line:match(MARKER_MIDDLE)) then
-      skip_until_end = true
+      state = "OURS"
+    elseif line:match(MARKER_ANCESTOR) then
+      state = "BASE"
+    elseif line:match(MARKER_MIDDLE) then
+      state = "THEIRS"
     elseif line:match(MARKER_END) then
-      in_conflict = false
-      skip_until_end = false
-    elseif not skip_until_end then
+      state = "NORMAL"
+    elseif state == "NORMAL" or state == "OURS" then
       table.insert(result, line)
     end
   end
@@ -137,41 +139,19 @@ end
 
 local function extract_theirs(lines)
   local result = {}
-  local in_theirs = false
+  local state = "NORMAL"
   
   for _, line in ipairs(lines) do
-    if line:match(MARKER_MIDDLE) then
-      in_theirs = true
-    elseif line:match(MARKER_END) then
-      in_theirs = false
-    elseif line:match(MARKER_START) or line:match(MARKER_ANCESTOR) then
-      -- skip
-    elseif in_theirs then
-      table.insert(result, line)
-    elseif not line:match(MARKER_START) then
-      -- non-conflict lines
-      table.insert(result, line)
-    end
-  end
-  return result
-end
-
-local function extract_base(lines)
-  local result = {}
-  local in_base = false
-  
-  for _, line in ipairs(lines) do
-    if line:match(MARKER_ANCESTOR) then
-      in_base = true
+    if line:match(MARKER_START) then
+      state = "OURS"
+    elseif line:match(MARKER_ANCESTOR) then
+      state = "BASE"
     elseif line:match(MARKER_MIDDLE) then
-      in_base = false
-    elseif line:match(MARKER_START) or line:match(MARKER_END) then
-      -- skip markers
-    elseif in_base then
+      state = "THEIRS"
+    elseif line:match(MARKER_END) then
+      state = "NORMAL"
+    elseif state == "NORMAL" or state == "THEIRS" then
       table.insert(result, line)
-    elseif not (line:match(MARKER_START) or line:match(MARKER_ANCESTOR) or line:match(MARKER_MIDDLE) or line:match(MARKER_END)) then
-      -- For non-conflict regions, include the line
-      -- But we need to be smarter - only include if not in ours/theirs region
     end
   end
   return result
@@ -205,7 +185,7 @@ local function open_two_way_diff()
   local orig_lines = vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false)
   local style = get_conflict_style()
 
-  local ours_lines = extract_ours(orig_lines, style)
+  local ours_lines = extract_ours(orig_lines)
   local theirs_lines = extract_theirs(orig_lines)
 
   -- Replace current buffer content with OURS (stripped of markers)
@@ -248,7 +228,7 @@ local function open_three_way_diff()
   local orig_ft = vim.bo.filetype
   local orig_lines = vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false)
 
-  local ours_lines = extract_ours(orig_lines, style)
+  local ours_lines = extract_ours(orig_lines)
   local theirs_lines = extract_theirs(orig_lines)
 
   -- Replace current buffer with OURS
