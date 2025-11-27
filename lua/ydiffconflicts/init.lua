@@ -81,8 +81,6 @@ local function close_diff()
 end
 
 local function open_diff()
-  close_diff()
-  
   local filepath = vim.fn.expand("%:p")
   local lines = vim.fn.readfile(filepath)
   
