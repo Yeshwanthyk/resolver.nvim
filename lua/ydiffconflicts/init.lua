@@ -104,7 +104,15 @@ local function open_diff()
   -- Back to OURS
   vim.cmd("wincmd h")
   
-  vim.notify("OURS (left) | THEIRS (right). :w saves, :cq aborts.", vim.log.levels.INFO)
+  -- Set keymaps on the OURS buffer
+  local o = { buffer = true, silent = true }
+  vim.keymap.set("n", "<leader>co", "<cmd>YDiffOurs<cr>", o)
+  vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", o)
+  vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", o)
+  vim.keymap.set("n", "<leader>cr", "<cmd>YDiffRestore<cr>", o)
+  vim.keymap.set("n", "<leader>cp", "<cmd>YDiffPick<cr>", o)
+  
+  vim.notify("OURS | THEIRS. <leader>co/ct/cb/cr to choose. :w saves.", vim.log.levels.INFO)
 end
 
 local function choose(side)
@@ -169,6 +177,25 @@ local function get_conflicted_files()
   return files
 end
 
+local function close_diff()
+  vim.cmd("diffoff!")
+  -- Close any [THEIRS] buffer
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match("%[THEIRS%]$") then
+        local wins = vim.fn.win_findbuf(buf)
+        for _, win in ipairs(wins) do
+          if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+          end
+        end
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end
+    end
+  end
+end
+
 local function open_picker()
   local ok, Snacks = pcall(require, "snacks")
   if not ok then
@@ -190,6 +217,7 @@ local function open_picker()
     end,
     confirm = function(picker, item)
       picker:close()
+      close_diff()
       vim.cmd("edit " .. vim.fn.fnameescape(item.file))
       vim.schedule(open_diff)
     end,
