@@ -101,6 +101,39 @@ local function extract_theirs(lines)
   return result
 end
 
+-- Extract both: for each conflict, include OURS then THEIRS (no markers)
+local function extract_both(lines)
+  local result = {}
+  local state = "NORMAL"
+  local ours_block = {}
+  local theirs_block = {}
+  
+  for _, line in ipairs(lines) do
+    if line:match(MARKER_START) then
+      state = "OURS"
+      ours_block = {}
+      theirs_block = {}
+    elseif line:match(MARKER_ANCESTOR) then
+      state = "BASE"
+    elseif line:match(MARKER_MIDDLE) then
+      state = "THEIRS"
+    elseif line:match(MARKER_END) then
+      -- End of conflict - emit both blocks
+      for _, l in ipairs(ours_block) do table.insert(result, l) end
+      for _, l in ipairs(theirs_block) do table.insert(result, l) end
+      state = "NORMAL"
+    elseif state == "NORMAL" then
+      table.insert(result, line)
+    elseif state == "OURS" then
+      table.insert(ours_block, line)
+    elseif state == "THEIRS" then
+      table.insert(theirs_block, line)
+    end
+    -- BASE lines are skipped
+  end
+  return result
+end
+
 --------------------------------------------------------------------------------
 -- Quickfix List
 --------------------------------------------------------------------------------
@@ -210,6 +243,8 @@ end
 --------------------------------------------------------------------------------
 
 local function choose_side(side)
+  local orig_buf = vim.api.nvim_get_current_buf()
+  
   if side == "ours" then
     close_diff_view()
     vim.notify("Kept OURS", vim.log.levels.INFO)
@@ -218,9 +253,16 @@ local function choose_side(side)
     close_diff_view()
     vim.notify("Took THEIRS", vim.log.levels.INFO)
   elseif side == "both" then
+    -- Read original file with conflict markers
+    local filepath = vim.api.nvim_buf_get_name(orig_buf)
+    local orig_lines = vim.fn.readfile(filepath)
+    local both_lines = extract_both(orig_lines)
+    
     close_diff_view()
-    vim.cmd("edit!")  -- Reload file from disk (restores conflict markers)
-    vim.notify("Restored original - edit manually", vim.log.levels.INFO)
+    
+    -- Replace buffer with combined content
+    vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, both_lines)
+    vim.notify("Combined OURS + THEIRS", vim.log.levels.INFO)
   end
 end
 
