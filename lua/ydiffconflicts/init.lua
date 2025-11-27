@@ -110,17 +110,19 @@ local function open_diff()
   vim.api.nvim_buf_set_name(0, "[THEIRS]")
   vim.cmd("diffthis")
 
-  -- Back to OURS
-  vim.cmd("wincmd h | diffupdate")
+  -- Back to OURS and ensure diff is active
+  vim.cmd("wincmd h")
+  vim.cmd("diffthis")
+  vim.cmd("diffupdate")
   
   local o = { buffer = true, silent = true }
-  vim.keymap.set("n", "<leader>co", "<cmd>YDiffOurs<cr>", o)
-  vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", o)
-  vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", o)
-  vim.keymap.set("n", "<leader>cr", "<cmd>YDiffRestore<cr>", o)
-  vim.keymap.set("n", "<leader>cc", "<cmd>YDiffPick<cr>", o)
+  vim.keymap.set("n", "<leader>mo", "<cmd>YDiffOurs<cr>", o)
+  vim.keymap.set("n", "<leader>mt", "<cmd>YDiffTheirs<cr>", o)
+  vim.keymap.set("n", "<leader>mb", "<cmd>YDiffBoth<cr>", o)
+  vim.keymap.set("n", "<leader>mr", "<cmd>YDiffRestore<cr>", o)
+  vim.keymap.set("n", "<leader>mp", "<cmd>YDiffPick<cr>", o)
   
-  vim.notify("OURS | THEIRS. <leader>co/ct/cb/cr/cc", vim.log.levels.INFO)
+  vim.notify("OURS | THEIRS. <leader>mo/mt/mb/mr/mp", vim.log.levels.INFO)
 end
 
 local function choose(side)
