@@ -212,6 +212,10 @@ end
 --------------------------------------------------------------------------------
 
 vim.api.nvim_create_user_command("YDiffList", start, { desc = "Open conflict list and start resolving" })
+
+-- Legacy aliases for git mergetool compatibility
+vim.api.nvim_create_user_command("YDiffConflicts", open_diff_view, { desc = "Alias for YDiffOpen" })
+vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_diff_view, { desc = "Alias for YDiffOpen" })
 vim.api.nvim_create_user_command("YDiffOpen", open_diff_view, { desc = "Open two-way diff for current file" })
 vim.api.nvim_create_user_command("YDiffClose", close_diff_view, { desc = "Close two-way diff view" })
 vim.api.nvim_create_user_command("YDiffOurs", function() choose_all("ours") end, { desc = "Keep ours (left)" })
