@@ -66,9 +66,10 @@ end
 --------------------------------------------------------------------------------
 
 local function close_diff()
-  vim.cmd("diffoff!")
+  local found = false
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf):match("%[THEIRS%]$") then
+      found = true
       local wins = vim.fn.win_findbuf(buf)
       for _, win in ipairs(wins) do
         if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
@@ -76,6 +77,7 @@ local function close_diff()
       if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     end
   end
+  if found then vim.cmd("diffoff!") end
 end
 
 local function open_diff()
