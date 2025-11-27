@@ -218,8 +218,8 @@ local function choose_side(side)
     close_diff_view()
     vim.notify("Took THEIRS", vim.log.levels.INFO)
   elseif side == "both" then
-    vim.cmd("earlier 1f")
     close_diff_view()
+    vim.cmd("edit!")  -- Reload file from disk (restores conflict markers)
     vim.notify("Restored original - edit manually", vim.log.levels.INFO)
   end
 end
