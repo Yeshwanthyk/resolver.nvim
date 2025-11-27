@@ -1,0 +1,66 @@
+*ydiffconflicts.txt*	A better Vimdiff Git mergetool (Lua port)
+
+A Neovim plugin that converts a file containing Git conflict markers into
+a two-way diff. This is a pure Lua rewrite of vim-diffconflicts by Seth House.
+
+==============================================================================
+INSTALLATION                                      *ydiffconflicts-installation*
+
+Configure this plugin as a Git mergetool:
+
+>bash
+    git config --global merge.tool ydiffconflicts
+    git config --global merge.conflictStyle zdiff3
+    git config --global mergetool.ydiffconflicts.cmd 'nvim -c "YDiffConflictsWithHistory" "$MERGED" "$LOCAL" "$BASE" "$REMOTE"'
+    git config --global mergetool.ydiffconflicts.trustExitCode true
+    git config --global mergetool.keepBackup false
+<
+
+==============================================================================
+COMMANDS                                              *ydiffconflicts-commands*
+
+:YDiffConflicts                                            *:YDiffConflicts*
+	Convert a file containing Git conflict markers into a two-way diff.
+	Left side = OURS (editable), Right side = THEIRS (read-only).
+
+:YDiffConflictsShowHistory                        *:YDiffConflictsShowHistory*
+	Open a new tab containing LOCAL | BASE | REMOTE versions of the
+	conflicted file for reference.
+
+:YDiffConflictsWithHistory                        *:YDiffConflictsWithHistory*
+	Call both YDiffConflicts and YDiffConflictsShowHistory. This is the
+	recommended command for the Git mergetool configuration.
+
+==============================================================================
+WORKFLOW                                              *ydiffconflicts-workflow*
+
+1. Run `git mergetool` when you have conflicts
+2. Tab 1 shows two-way diff: OURS (left) vs THEIRS (right)
+3. Tab 2 shows history: LOCAL | BASE | REMOTE
+4. Edit the left side to resolve conflicts
+5. Use |:diffget| and |:diffput| for quick changes
+6. Save with |:w| and quit with |:q|
+7. Use |:cq| to abort (tells Git the merge failed)
+
+==============================================================================
+CONFLICT STYLES                                *ydiffconflicts-conflict-styles*
+
+The plugin auto-detects your Git conflict style:
+
+- merge (default): Shows OURS and THEIRS
+- diff3: Also shows BASE in conflict markers  
+- zdiff3 (recommended): Like diff3 but cleaner
+
+Set with: `git config --global merge.conflictStyle zdiff3`
+
+==============================================================================
+CREDITS                                                *ydiffconflicts-credits*
+
+Original vim-diffconflicts by Seth House:
+https://github.com/whiteinge/diffconflicts
+
+Video demonstration of the concept:
+https://www.youtube.com/watch?v=Pxgl3Wtf78Y
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
