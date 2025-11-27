@@ -1,15 +1,9 @@
 -- ydiffconflicts.nvim - Two-way diff for Git merge conflicts
--- Original concept by Seth House (vim-diffconflicts)
 local M = {}
 
 --------------------------------------------------------------------------------
 -- Utilities
 --------------------------------------------------------------------------------
-
-local function get_conflict_style()
-  local style = vim.trim(vim.fn.system("git config --get merge.conflictStyle"))
-  return (style == "diff3" or style == "zdiff3") and style or "merge"
-end
 
 local function get_git_root()
   local root = vim.trim(vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"))
@@ -30,7 +24,7 @@ local function get_conflicted_files()
 end
 
 --------------------------------------------------------------------------------
--- Conflict Detection
+-- Conflict Markers
 --------------------------------------------------------------------------------
 
 local MARKER_START = "^<<<<<<< "
@@ -38,15 +32,20 @@ local MARKER_ANCESTOR = "^||||||| "
 local MARKER_MIDDLE = "^=======$"
 local MARKER_END = "^>>>>>>> "
 
-local function has_conflicts(bufnr)
-  bufnr = bufnr or 0
-  for _, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-    if line:match(MARKER_START) then return true end
+local function file_has_conflicts(filepath)
+  local f = io.open(filepath, "r")
+  if not f then return false end
+  for line in f:lines() do
+    if line:match(MARKER_START) then
+      f:close()
+      return true
+    end
   end
+  f:close()
   return false
 end
 
-local function count_conflicts_in_file(filepath)
+local function count_conflicts(filepath)
   local f = io.open(filepath, "r")
   if not f then return 0 end
   local count = 0
@@ -57,25 +56,15 @@ local function count_conflicts_in_file(filepath)
   return count
 end
 
---------------------------------------------------------------------------------
--- Marker Extraction (state machine)
---------------------------------------------------------------------------------
-
 local function extract_ours(lines)
   local result = {}
   local state = "NORMAL"
-  
   for _, line in ipairs(lines) do
-    if line:match(MARKER_START) then
-      state = "OURS"
-    elseif line:match(MARKER_ANCESTOR) then
-      state = "BASE"
-    elseif line:match(MARKER_MIDDLE) then
-      state = "THEIRS"
-    elseif line:match(MARKER_END) then
-      state = "NORMAL"
-    elseif state == "NORMAL" or state == "OURS" then
-      table.insert(result, line)
+    if line:match(MARKER_START) then state = "OURS"
+    elseif line:match(MARKER_ANCESTOR) then state = "BASE"
+    elseif line:match(MARKER_MIDDLE) then state = "THEIRS"
+    elseif line:match(MARKER_END) then state = "NORMAL"
+    elseif state == "NORMAL" or state == "OURS" then table.insert(result, line)
     end
   end
   return result
@@ -84,58 +73,41 @@ end
 local function extract_theirs(lines)
   local result = {}
   local state = "NORMAL"
-  
   for _, line in ipairs(lines) do
-    if line:match(MARKER_START) then
-      state = "OURS"
-    elseif line:match(MARKER_ANCESTOR) then
-      state = "BASE"
-    elseif line:match(MARKER_MIDDLE) then
-      state = "THEIRS"
-    elseif line:match(MARKER_END) then
-      state = "NORMAL"
-    elseif state == "NORMAL" or state == "THEIRS" then
-      table.insert(result, line)
+    if line:match(MARKER_START) then state = "OURS"
+    elseif line:match(MARKER_ANCESTOR) then state = "BASE"
+    elseif line:match(MARKER_MIDDLE) then state = "THEIRS"
+    elseif line:match(MARKER_END) then state = "NORMAL"
+    elseif state == "NORMAL" or state == "THEIRS" then table.insert(result, line)
     end
   end
   return result
 end
 
--- Extract both: for each conflict, include OURS then THEIRS (no markers)
 local function extract_both(lines)
   local result = {}
   local state = "NORMAL"
-  local ours_block = {}
-  local theirs_block = {}
-  
+  local ours_block, theirs_block = {}, {}
   for _, line in ipairs(lines) do
     if line:match(MARKER_START) then
       state = "OURS"
-      ours_block = {}
-      theirs_block = {}
-    elseif line:match(MARKER_ANCESTOR) then
-      state = "BASE"
-    elseif line:match(MARKER_MIDDLE) then
-      state = "THEIRS"
+      ours_block, theirs_block = {}, {}
+    elseif line:match(MARKER_ANCESTOR) then state = "BASE"
+    elseif line:match(MARKER_MIDDLE) then state = "THEIRS"
     elseif line:match(MARKER_END) then
-      -- End of conflict - emit both blocks
       for _, l in ipairs(ours_block) do table.insert(result, l) end
       for _, l in ipairs(theirs_block) do table.insert(result, l) end
       state = "NORMAL"
-    elseif state == "NORMAL" then
-      table.insert(result, line)
-    elseif state == "OURS" then
-      table.insert(ours_block, line)
-    elseif state == "THEIRS" then
-      table.insert(theirs_block, line)
+    elseif state == "NORMAL" then table.insert(result, line)
+    elseif state == "OURS" then table.insert(ours_block, line)
+    elseif state == "THEIRS" then table.insert(theirs_block, line)
     end
-    -- BASE lines are skipped
   end
   return result
 end
 
 --------------------------------------------------------------------------------
--- Quickfix List
+-- Quickfix
 --------------------------------------------------------------------------------
 
 local function populate_quickfix()
@@ -146,259 +118,183 @@ local function populate_quickfix()
     return false
   end
 
-  -- Check which files are staged (resolved)
-  local staged_output = vim.fn.system("git diff --cached --name-only 2>/dev/null")
-  local staged = {}
-  for file in staged_output:gmatch("[^\n]+") do
-    staged[file] = true
-  end
-  local root = get_git_root()
-
   local items = {}
-  local resolved_count = 0
+  local resolved = 0
   for _, filepath in ipairs(files) do
-    local count = count_conflicts_in_file(filepath)
-    local relpath = filepath:gsub("^" .. vim.pesc(root) .. "/", "")
-    local is_resolved = staged[relpath] or false
-    
-    if is_resolved then
-      resolved_count = resolved_count + 1
-      table.insert(items, {
-        filename = filepath,
-        lnum = 1,
-        text = "✓ resolved",
-      })
-    else
+    local has_markers = file_has_conflicts(filepath)
+    if has_markers then
+      local count = count_conflicts(filepath)
       local f = io.open(filepath, "r")
+      local lnum = 1
       if f then
-        local lnum = 1
         for line in f:lines() do
-          if line:match(MARKER_START) then
-            table.insert(items, {
-              filename = filepath,
-              lnum = lnum,
-              text = count .. " conflict" .. (count > 1 and "s" or ""),
-            })
-            break
-          end
+          if line:match(MARKER_START) then break end
           lnum = lnum + 1
         end
         f:close()
       end
+      table.insert(items, { filename = filepath, lnum = lnum, text = count .. " conflict" .. (count > 1 and "s" or "") })
+    else
+      resolved = resolved + 1
+      table.insert(items, { filename = filepath, lnum = 1, text = "✓ resolved" })
     end
   end
 
   vim.fn.setqflist(items, "r")
-  local title = string.format("Git Conflicts (%d/%d resolved)", resolved_count, #items)
-  vim.fn.setqflist({}, "a", { title = title })
+  vim.fn.setqflist({}, "a", { title = string.format("Conflicts (%d/%d done)", resolved, #items) })
   return true
 end
 
 --------------------------------------------------------------------------------
--- Two-Way Diff View
+-- Two-Way Diff
 --------------------------------------------------------------------------------
 
--- Track the THEIRS buffer so we can clean it up
-local theirs_bufnr = nil
-local theirs_winnr = nil
+local theirs_win = nil
+local theirs_buf = nil
+local ours_win = nil
 
-local function close_diff_view()
+local function close_diff()
   vim.cmd("diffoff!")
-  
-  -- Close THEIRS window and buffer
-  if theirs_winnr and vim.api.nvim_win_is_valid(theirs_winnr) then
-    vim.api.nvim_win_close(theirs_winnr, true)
+  if theirs_win and vim.api.nvim_win_is_valid(theirs_win) then
+    vim.api.nvim_win_close(theirs_win, true)
   end
-  if theirs_bufnr and vim.api.nvim_buf_is_valid(theirs_bufnr) then
-    vim.api.nvim_buf_delete(theirs_bufnr, { force = true })
+  if theirs_buf and vim.api.nvim_buf_is_valid(theirs_buf) then
+    vim.api.nvim_buf_delete(theirs_buf, { force = true })
   end
-  theirs_bufnr = nil
-  theirs_winnr = nil
+  theirs_win, theirs_buf = nil, nil
 end
 
-local function open_diff_view()
-  -- Close any existing diff first
-  close_diff_view()
+local function open_diff()
+  close_diff()
   
-  local orig_buf = vim.api.nvim_get_current_buf()
-  local orig_win = vim.api.nvim_get_current_win()
-  local orig_file = vim.api.nvim_buf_get_name(orig_buf)
-  local orig_ft = vim.bo[orig_buf].filetype
-  local orig_lines = vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false)
-
-  if not has_conflicts(orig_buf) then
-    vim.notify("No conflict markers in this file", vim.log.levels.WARN)
+  local filepath = vim.fn.expand("%:p")
+  if filepath == "" or not file_has_conflicts(filepath) then
+    vim.notify("No conflicts in this file", vim.log.levels.WARN)
     return
   end
 
-  -- Extract versions
-  local ours_lines = extract_ours(orig_lines)
-  local theirs_lines = extract_theirs(orig_lines)
+  -- Read file fresh from disk
+  local lines = vim.fn.readfile(filepath)
+  local ours = extract_ours(lines)
+  local theirs = extract_theirs(lines)
+  local ft = vim.bo.filetype
 
-  -- Set left buffer to OURS (stripped markers)
-  vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, ours_lines)
-  vim.cmd.diffthis()
+  -- Set current buffer to OURS
+  ours_win = vim.api.nvim_get_current_win()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, ours)
+  vim.cmd("diffthis")
 
-  -- Create THEIRS buffer on right
+  -- Create THEIRS split
   vim.cmd("rightbelow vsplit")
-  theirs_winnr = vim.api.nvim_get_current_win()
   vim.cmd("enew")
-  theirs_bufnr = vim.api.nvim_get_current_buf()
-  
-  vim.api.nvim_buf_set_lines(theirs_bufnr, 0, -1, false, theirs_lines)
-  vim.api.nvim_buf_set_name(theirs_bufnr, orig_file .. " [THEIRS]")
-  vim.bo[theirs_bufnr].filetype = orig_ft
-  vim.bo[theirs_bufnr].buftype = "nofile"
-  vim.bo[theirs_bufnr].bufhidden = "wipe"
-  vim.bo[theirs_bufnr].buflisted = false
-  vim.bo[theirs_bufnr].modifiable = false
-  vim.cmd.diffthis()
+  theirs_win = vim.api.nvim_get_current_win()
+  theirs_buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(theirs_buf, 0, -1, false, theirs)
+  vim.api.nvim_buf_set_name(theirs_buf, "[THEIRS]")
+  vim.bo[theirs_buf].buftype = "nofile"
+  vim.bo[theirs_buf].bufhidden = "wipe"
+  vim.bo[theirs_buf].modifiable = false
+  vim.bo[theirs_buf].filetype = ft
+  vim.cmd("diffthis")
 
-  -- Go back to OURS (left)
-  vim.api.nvim_set_current_win(orig_win)
-  vim.cmd("diffupdate")
-
-  vim.notify("OURS (left, edit) | THEIRS (right, ref). :diffget to pull. :w saves.", vim.log.levels.INFO)
+  -- Back to OURS
+  vim.api.nvim_set_current_win(ours_win)
+  vim.notify("OURS (left) | THEIRS (right) — :diffget / do to pull", vim.log.levels.INFO)
 end
 
 --------------------------------------------------------------------------------
--- Resolution
+-- Actions
 --------------------------------------------------------------------------------
 
-local function choose_side(side)
-  local orig_buf = vim.api.nvim_get_current_buf()
-  local filepath = vim.api.nvim_buf_get_name(orig_buf)
-  
+local function choose(side)
+  local filepath = vim.fn.expand("%:p")
   if side == "ours" then
-    -- Already showing ours, nothing to do
-    vim.notify("Kept OURS - edit or :w to save", vim.log.levels.INFO)
+    vim.notify("Kept OURS", vim.log.levels.INFO)
   elseif side == "theirs" then
     vim.cmd("%diffget")
     vim.cmd("diffupdate")
-    vim.notify("Took THEIRS - edit or :w to save", vim.log.levels.INFO)
+    vim.notify("Took THEIRS", vim.log.levels.INFO)
   elseif side == "both" then
-    -- Read original file with conflict markers
-    local orig_lines = vim.fn.readfile(filepath)
-    local both_lines = extract_both(orig_lines)
-    vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, both_lines)
+    local lines = vim.fn.readfile(filepath)
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, extract_both(lines))
     vim.cmd("diffupdate")
-    vim.notify("Combined OURS + THEIRS - edit or :w to save", vim.log.levels.INFO)
+    vim.notify("Combined OURS + THEIRS", vim.log.levels.INFO)
   end
 end
 
 local function mark_resolved()
-  close_diff_view()
-  
+  close_diff()
   local file = vim.fn.expand("%:p")
-  if has_conflicts() then
-    vim.notify("File still has conflict markers!", vim.log.levels.ERROR)
-    return
-  end
-
-  vim.cmd("silent write")
+  vim.cmd("write")
   vim.fn.system("git add " .. vim.fn.shellescape(file))
   vim.notify("✓ " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
   populate_quickfix()
 end
 
 local function unresolve()
-  close_diff_view()
-  
+  close_diff()
   local file = vim.fn.expand("%:p")
-  -- Restore conflict markers using git checkout --conflict
   vim.fn.system("git checkout --conflict=merge " .. vim.fn.shellescape(file))
-  vim.cmd("edit!")  -- Reload from disk
-  vim.notify("Restored conflict markers", vim.log.levels.INFO)
+  vim.cmd("edit!")
   populate_quickfix()
-  
-  -- Re-open diff view
-  vim.schedule(function()
-    if has_conflicts() then
-      open_diff_view()
-    end
-  end)
+  vim.schedule(open_diff)
 end
 
-local function next_conflict_file()
-  close_diff_view()
-  vim.cmd("cnext")
-  vim.schedule(function()
-    if has_conflicts() then
-      open_diff_view()
-    end
-  end)
+local function go_next()
+  close_diff()
+  local ok = pcall(vim.cmd, "cnext")
+  if ok then vim.schedule(open_diff) end
 end
 
-local function prev_conflict_file()
-  close_diff_view()
-  vim.cmd("cprev")
-  vim.schedule(function()
-    if has_conflicts() then
-      open_diff_view()
-    end
-  end)
+local function go_prev()
+  close_diff()
+  local ok = pcall(vim.cmd, "cprev")
+  if ok then vim.schedule(open_diff) end
 end
-
---------------------------------------------------------------------------------
--- Main Entry
---------------------------------------------------------------------------------
 
 local function start()
   if not populate_quickfix() then return end
-  
-  vim.cmd("copen")
-  vim.cmd("wincmd k")
-  vim.cmd("cfirst")
-  
-  vim.schedule(function()
-    if has_conflicts() then
-      open_diff_view()
-    end
-  end)
-  
-  vim.notify("Resolve conflicts. :YDiffNext/:YDiffPrev to navigate. :cq to abort.", vim.log.levels.INFO)
+  vim.cmd("copen | wincmd k | cfirst")
+  vim.schedule(open_diff)
 end
 
 local function abort()
-  close_diff_view()
-  vim.cmd("cclose")
-  vim.cmd("cq")  -- Exit with error code - tells git mergetool to abort
+  close_diff()
+  vim.cmd("cclose | cq")
 end
 
 --------------------------------------------------------------------------------
 -- Commands
 --------------------------------------------------------------------------------
 
-vim.api.nvim_create_user_command("YDiffList", start, { desc = "Start conflict resolution" })
-vim.api.nvim_create_user_command("YDiff", open_diff_view, { desc = "Open two-way diff" })
-vim.api.nvim_create_user_command("YDiffClose", close_diff_view, { desc = "Close diff view" })
-vim.api.nvim_create_user_command("YDiffOurs", function() choose_side("ours") end, { desc = "Keep OURS" })
-vim.api.nvim_create_user_command("YDiffTheirs", function() choose_side("theirs") end, { desc = "Take THEIRS" })
-vim.api.nvim_create_user_command("YDiffBoth", function() choose_side("both") end, { desc = "Restore original" })
-vim.api.nvim_create_user_command("YDiffResolved", mark_resolved, { desc = "Mark resolved (git add)" })
-vim.api.nvim_create_user_command("YDiffUnresolve", unresolve, { desc = "Restore conflict markers" })
-vim.api.nvim_create_user_command("YDiffNext", next_conflict_file, { desc = "Next conflict file" })
-vim.api.nvim_create_user_command("YDiffPrev", prev_conflict_file, { desc = "Prev conflict file" })
-vim.api.nvim_create_user_command("YDiffAbort", abort, { desc = "Abort merge" })
+vim.api.nvim_create_user_command("YDiffList", start, {})
+vim.api.nvim_create_user_command("YDiff", open_diff, {})
+vim.api.nvim_create_user_command("YDiffClose", close_diff, {})
+vim.api.nvim_create_user_command("YDiffOurs", function() choose("ours") end, {})
+vim.api.nvim_create_user_command("YDiffTheirs", function() choose("theirs") end, {})
+vim.api.nvim_create_user_command("YDiffBoth", function() choose("both") end, {})
+vim.api.nvim_create_user_command("YDiffResolved", mark_resolved, {})
+vim.api.nvim_create_user_command("YDiffUnresolve", unresolve, {})
+vim.api.nvim_create_user_command("YDiffNext", go_next, {})
+vim.api.nvim_create_user_command("YDiffPrev", go_prev, {})
+vim.api.nvim_create_user_command("YDiffAbort", abort, {})
 
--- Legacy aliases
-vim.api.nvim_create_user_command("YDiffConflicts", open_diff_view, {})
-vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_diff_view, {})
-vim.api.nvim_create_user_command("YDiffOpen", open_diff_view, {})
+-- Legacy
+vim.api.nvim_create_user_command("YDiffConflicts", open_diff, {})
+vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_diff, {})
 
--- Keymaps when in diff mode
+-- Keymaps in diff mode
 vim.api.nvim_create_autocmd("OptionSet", {
-  group = vim.api.nvim_create_augroup("YDiffConflicts", { clear = true }),
   pattern = "diff",
   callback = function()
     if vim.v.option_new == "1" then
-      local opts = { buffer = true, silent = true }
-      vim.keymap.set("n", "<leader>co", "<cmd>YDiffOurs<cr>", opts)
-      vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", opts)
-      vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", opts)
-      vim.keymap.set("n", "<leader>cw", "<cmd>YDiffResolved<cr>", opts)
-      vim.keymap.set("n", "]q", "<cmd>YDiffNext<cr>", opts)
-      vim.keymap.set("n", "[q", "<cmd>YDiffPrev<cr>", opts)
+      local o = { buffer = true, silent = true }
+      vim.keymap.set("n", "<leader>co", "<cmd>YDiffOurs<cr>", o)
+      vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", o)
+      vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", o)
+      vim.keymap.set("n", "<leader>cw", "<cmd>YDiffResolved<cr>", o)
+      vim.keymap.set("n", "]q", "<cmd>YDiffNext<cr>", o)
+      vim.keymap.set("n", "[q", "<cmd>YDiffPrev<cr>", o)
     end
   end,
 })
