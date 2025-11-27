@@ -1,4 +1,4 @@
--- ydiffconflicts.nvim - Two-way diff for Git merge conflicts
+-- ydiffconflicts.nvim - Two-way and three-way diff for Git merge conflicts
 -- Original concept by Seth House (vim-diffconflicts)
 local M = {}
 
@@ -33,8 +33,10 @@ end
 -- Conflict Detection
 --------------------------------------------------------------------------------
 
-local MARKER_START = "^<<<<<<<" 
-local MARKER_END = "^>>>>>>>"
+local MARKER_START = "^<<<<<<< "
+local MARKER_ANCESTOR = "^||||||| "
+local MARKER_MIDDLE = "^=======$"
+local MARKER_END = "^>>>>>>> "
 
 local function has_conflicts(bufnr)
   bufnr = bufnr or 0
@@ -93,15 +95,19 @@ local function populate_quickfix()
 end
 
 --------------------------------------------------------------------------------
--- Two-Way Diff View
+-- Two-Way Diff View (OURS vs THEIRS)
 --------------------------------------------------------------------------------
 
 local function close_diff_view()
-  -- Close the THEIRS buffer if it exists
+  -- Close THEIRS/BASE buffers if they exist
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(buf) then
       local name = vim.api.nvim_buf_get_name(buf)
-      if name:match("THEIRS$") then
+      if name:match("THEIRS$") or name:match("BASE$") then
+        local wins = vim.fn.win_findbuf(buf)
+        for _, win in ipairs(wins) do
+          vim.api.nvim_win_close(win, true)
+        end
         vim.api.nvim_buf_delete(buf, { force = true })
       end
     end
@@ -109,88 +115,195 @@ local function close_diff_view()
   vim.cmd("diffoff!")
 end
 
-local function open_diff_view()
+local function extract_ours(lines, style)
+  local result = {}
+  local in_conflict = false
+  local skip_until_end = false
+  
+  for _, line in ipairs(lines) do
+    if line:match(MARKER_START) then
+      in_conflict = true
+    elseif in_conflict and (line:match(MARKER_ANCESTOR) or line:match(MARKER_MIDDLE)) then
+      skip_until_end = true
+    elseif line:match(MARKER_END) then
+      in_conflict = false
+      skip_until_end = false
+    elseif not skip_until_end then
+      table.insert(result, line)
+    end
+  end
+  return result
+end
+
+local function extract_theirs(lines)
+  local result = {}
+  local in_theirs = false
+  
+  for _, line in ipairs(lines) do
+    if line:match(MARKER_MIDDLE) then
+      in_theirs = true
+    elseif line:match(MARKER_END) then
+      in_theirs = false
+    elseif line:match(MARKER_START) or line:match(MARKER_ANCESTOR) then
+      -- skip
+    elseif in_theirs then
+      table.insert(result, line)
+    elseif not line:match(MARKER_START) then
+      -- non-conflict lines
+      table.insert(result, line)
+    end
+  end
+  return result
+end
+
+local function extract_base(lines)
+  local result = {}
+  local in_base = false
+  
+  for _, line in ipairs(lines) do
+    if line:match(MARKER_ANCESTOR) then
+      in_base = true
+    elseif line:match(MARKER_MIDDLE) then
+      in_base = false
+    elseif line:match(MARKER_START) or line:match(MARKER_END) then
+      -- skip markers
+    elseif in_base then
+      table.insert(result, line)
+    elseif not (line:match(MARKER_START) or line:match(MARKER_ANCESTOR) or line:match(MARKER_MIDDLE) or line:match(MARKER_END)) then
+      -- For non-conflict regions, include the line
+      -- But we need to be smarter - only include if not in ours/theirs region
+    end
+  end
+  return result
+end
+
+local function create_scratch_buf(name, lines, filetype)
+  vim.cmd("enew")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_name(buf, name)
+  vim.bo[buf].filetype = filetype
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = true
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].buflisted = false
+  return buf
+end
+
+local function open_two_way_diff()
   if not has_conflicts() then
     vim.notify("No conflict markers in this file", vim.log.levels.WARN)
     return
   end
 
-  -- Close any existing diff view first
   close_diff_view()
 
   local orig_buf = vim.api.nvim_get_current_buf()
+  local orig_file = vim.api.nvim_buf_get_name(orig_buf)
   local orig_ft = vim.bo.filetype
   local orig_lines = vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false)
   local style = get_conflict_style()
 
-  -- Right side (theirs) - read only reference
-  vim.cmd("rightb vsplit | enew")
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, orig_lines)
-  vim.api.nvim_buf_set_name(0, "THEIRS")
-  vim.bo.filetype = orig_ft
-  vim.cmd.diffthis()
-  vim.cmd([[silent! g/^<<<<<<< /,/^=======\r\?$/d]])
-  vim.cmd([[silent! g/^>>>>>>> /d]])
-  vim.bo.modifiable = false
-  vim.bo.readonly = true
-  vim.bo.buftype = "nofile"
-  vim.bo.bufhidden = "wipe"
-  vim.bo.buflisted = false
+  local ours_lines = extract_ours(orig_lines, style)
+  local theirs_lines = extract_theirs(orig_lines)
 
-  -- Left side (ours) - this is what we edit
+  -- Replace current buffer content with OURS (stripped of markers)
+  vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, ours_lines)
+  vim.cmd.diffthis()
+
+  -- Right side: THEIRS (read-only)
+  vim.cmd("rightb vsplit")
+  create_scratch_buf(orig_file .. " [THEIRS]", theirs_lines, orig_ft)
+  vim.cmd.diffthis()
+
+  -- Go back to left (ours)
   vim.cmd.wincmd("p")
+  vim.cmd("diffupdate")
+
+  vim.notify("Left=OURS (edit), Right=THEIRS (ref). :diffget to pull. :w to save.", vim.log.levels.INFO)
+end
+
+--------------------------------------------------------------------------------
+-- Three-Way Diff View (OURS | BASE | THEIRS)
+--------------------------------------------------------------------------------
+
+local function open_three_way_diff()
+  if not has_conflicts() then
+    vim.notify("No conflict markers in this file", vim.log.levels.WARN)
+    return
+  end
+
+  local style = get_conflict_style()
+  if style ~= "diff3" and style ~= "zdiff3" then
+    vim.notify("Three-way diff requires merge.conflictStyle=diff3 or zdiff3", vim.log.levels.WARN)
+    open_two_way_diff()
+    return
+  end
+
+  close_diff_view()
+
+  local orig_buf = vim.api.nvim_get_current_buf()
+  local orig_file = vim.api.nvim_buf_get_name(orig_buf)
+  local orig_ft = vim.bo.filetype
+  local orig_lines = vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false)
+
+  local ours_lines = extract_ours(orig_lines, style)
+  local theirs_lines = extract_theirs(orig_lines)
+
+  -- Replace current buffer with OURS
+  vim.api.nvim_buf_set_lines(orig_buf, 0, -1, false, ours_lines)
   vim.cmd.diffthis()
-  if style == "diff3" or style == "zdiff3" then
-    vim.cmd([[silent! g/^||||||| \?/,/^>>>>>>> /d]])
-  else
-    vim.cmd([[silent! g/^=======\r\?$/,/^>>>>>>> /d]])
-  end
-  vim.cmd([[silent! g/^<<<<<<< /d]])
-  vim.cmd.diffupdate()
 
-  vim.notify("Edit left (ours). Use :diffget to pull from right (theirs). :w to save.", vim.log.levels.INFO)
+  -- Right side: THEIRS
+  vim.cmd("rightb vsplit")
+  create_scratch_buf(orig_file .. " [THEIRS]", theirs_lines, orig_ft)
+  vim.cmd.diffthis()
+
+  -- Go back to OURS
+  vim.cmd.wincmd("p")
+  vim.cmd("diffupdate")
+
+  vim.notify("Left=OURS (edit), Right=THEIRS (ref). :diffget to pull. :w to save.", vim.log.levels.INFO)
 end
 
--- Take all changes from ours (left) or theirs (right)
-local function choose_all(side)
+--------------------------------------------------------------------------------
+-- Resolution helpers
+--------------------------------------------------------------------------------
+
+local function choose_side(side)
   if side == "ours" then
-    -- Already showing ours on left, just close diff
+    vim.cmd("diffoff!")
     close_diff_view()
-    vim.notify("Kept ours", vim.log.levels.INFO)
+    vim.notify("Kept OURS", vim.log.levels.INFO)
   elseif side == "theirs" then
-    -- Get everything from theirs
-    vim.cmd("diffget")
+    vim.cmd("%diffget")
+    vim.cmd("diffoff!")
     close_diff_view()
-    vim.notify("Took theirs", vim.log.levels.INFO)
+    vim.notify("Took THEIRS", vim.log.levels.INFO)
   elseif side == "both" then
-    -- This is trickier - need to combine. For now, close and let user edit manually.
+    -- Undo the extraction - user needs to resolve manually
+    vim.cmd("earlier 1f")
     close_diff_view()
-    vim.notify("Edit manually to combine both versions", vim.log.levels.INFO)
+    vim.notify("Restored original. Edit manually to combine.", vim.log.levels.INFO)
   end
 end
-
---------------------------------------------------------------------------------
--- Mark Resolved
---------------------------------------------------------------------------------
 
 local function mark_resolved()
   local file = vim.fn.expand("%:p")
   
-  -- Check if still in diff mode with THEIRS
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf):match("THEIRS$") then
-      vim.notify("Close diff view first (:YDiffClose or resolve conflicts)", vim.log.levels.WARN)
-      return
-    end
+  -- Close diff if still open
+  close_diff_view()
+
+  -- Check for remaining markers
+  if has_conflicts() then
+    vim.notify("File still has conflict markers!", vim.log.levels.ERROR)
+    return
   end
 
-  -- Save the file first
   vim.cmd("silent write")
-  
   vim.fn.system("git add " .. vim.fn.shellescape(file))
   vim.notify("Resolved: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
-  
-  -- Refresh quickfix
   populate_quickfix()
 end
 
@@ -200,11 +313,18 @@ end
 
 local function start()
   if not populate_quickfix() then return end
+  
+  -- Open quickfix
   vim.cmd("copen")
+  vim.cmd("wincmd k")  -- Move to window above quickfix
+  
+  -- Go to first conflict file
   vim.cmd("cfirst")
-  -- Auto-open diff view for the first file
-  vim.cmd("wincmd p") -- go to file window
-  open_diff_view()
+  
+  -- Schedule diff view to open after buffer is loaded
+  vim.schedule(function()
+    open_two_way_diff()
+  end)
 end
 
 --------------------------------------------------------------------------------
@@ -212,17 +332,20 @@ end
 --------------------------------------------------------------------------------
 
 vim.api.nvim_create_user_command("YDiffList", start, { desc = "Open conflict list and start resolving" })
+vim.api.nvim_create_user_command("YDiff", open_two_way_diff, { desc = "Open two-way diff (OURS vs THEIRS)" })
+vim.api.nvim_create_user_command("YDiff3", open_three_way_diff, { desc = "Open three-way diff (OURS | BASE | THEIRS)" })
+vim.api.nvim_create_user_command("YDiffClose", close_diff_view, { desc = "Close diff view" })
+vim.api.nvim_create_user_command("YDiffOurs", function() choose_side("ours") end, { desc = "Keep OURS" })
+vim.api.nvim_create_user_command("YDiffTheirs", function() choose_side("theirs") end, { desc = "Take THEIRS" })
+vim.api.nvim_create_user_command("YDiffBoth", function() choose_side("both") end, { desc = "Restore original to combine manually" })
+vim.api.nvim_create_user_command("YDiffResolved", mark_resolved, { desc = "Mark resolved (git add)" })
 
--- Legacy aliases for git mergetool compatibility
-vim.api.nvim_create_user_command("YDiffConflicts", open_diff_view, { desc = "Alias for YDiffOpen" })
-vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_diff_view, { desc = "Alias for YDiffOpen" })
-vim.api.nvim_create_user_command("YDiffOpen", open_diff_view, { desc = "Open two-way diff for current file" })
-vim.api.nvim_create_user_command("YDiffClose", close_diff_view, { desc = "Close two-way diff view" })
-vim.api.nvim_create_user_command("YDiffOurs", function() choose_all("ours") end, { desc = "Keep ours (left)" })
-vim.api.nvim_create_user_command("YDiffTheirs", function() choose_all("theirs") end, { desc = "Take theirs (right)" })
-vim.api.nvim_create_user_command("YDiffResolved", mark_resolved, { desc = "Mark file as resolved (git add)" })
+-- Legacy aliases
+vim.api.nvim_create_user_command("YDiffConflicts", open_two_way_diff, {})
+vim.api.nvim_create_user_command("YDiffConflictsWithHistory", open_two_way_diff, {})
+vim.api.nvim_create_user_command("YDiffOpen", open_two_way_diff, {})
 
--- Keymaps in diff mode
+-- Auto keymaps when diff mode is active
 vim.api.nvim_create_autocmd("OptionSet", {
   group = vim.api.nvim_create_augroup("YDiffConflicts", { clear = true }),
   pattern = "diff",
@@ -231,7 +354,8 @@ vim.api.nvim_create_autocmd("OptionSet", {
       local opts = { buffer = true, silent = true }
       vim.keymap.set("n", "<leader>co", "<cmd>YDiffOurs<cr>", opts)
       vim.keymap.set("n", "<leader>ct", "<cmd>YDiffTheirs<cr>", opts)
-      vim.keymap.set("n", "<leader>cd", "<cmd>YDiffResolved<cr>", opts)
+      vim.keymap.set("n", "<leader>cb", "<cmd>YDiffBoth<cr>", opts)
+      vim.keymap.set("n", "<leader>cw", "<cmd>YDiffResolved<cr>", opts)
     end
   end,
 })
