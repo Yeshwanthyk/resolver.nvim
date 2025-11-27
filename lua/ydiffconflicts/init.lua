@@ -240,17 +240,16 @@ local function unresolve()
   vim.schedule(open_diff)
 end
 
-local function go_next()
+local function go_file(cmd)
   close_diff()
-  local ok = pcall(vim.cmd, "cnext")
+  -- Focus quickfix, then go to window above it
+  vim.cmd("copen | wincmd k")
+  local ok = pcall(vim.cmd, cmd)
   if ok then vim.schedule(open_diff) end
 end
 
-local function go_prev()
-  close_diff()
-  local ok = pcall(vim.cmd, "cprev")
-  if ok then vim.schedule(open_diff) end
-end
+local function go_next() go_file("cnext") end
+local function go_prev() go_file("cprev") end
 
 local function start()
   if not populate_quickfix() then return end
