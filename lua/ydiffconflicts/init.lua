@@ -102,18 +102,23 @@ local function open_diff()
 
   -- Right: THEIRS
   vim.cmd("rightbelow vsplit | enew")
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, extract_theirs(lines))
-  vim.bo.buftype = "nofile"
-  vim.bo.bufhidden = "wipe"
-  vim.bo.modifiable = false
-  vim.bo.filetype = ft
-  vim.api.nvim_buf_set_name(0, "[THEIRS]")
+  local theirs_buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(theirs_buf, 0, -1, false, extract_theirs(lines))
+  vim.bo[theirs_buf].buftype = "nofile"
+  vim.bo[theirs_buf].bufhidden = "wipe"
+  vim.bo[theirs_buf].filetype = ft
+  pcall(vim.api.nvim_buf_set_name, theirs_buf, "[THEIRS]")
+  vim.bo[theirs_buf].modifiable = false
   vim.cmd("diffthis")
 
   -- Back to OURS and ensure diff is active
   vim.cmd("wincmd h")
   vim.cmd("diffthis")
-  vim.cmd("diffupdate")
+  
+  -- Force diff update after a tick
+  vim.schedule(function()
+    vim.cmd("diffupdate")
+  end)
   
   local o = { buffer = true, silent = true }
   vim.keymap.set("n", "<leader>mo", "<cmd>YDiffOurs<cr>", o)
