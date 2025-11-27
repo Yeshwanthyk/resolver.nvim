@@ -88,18 +88,21 @@ git resolve
 |---------|-------------|
 | `:YDiffList` | Open quickfix with all conflicts, start resolving |
 | `:YDiff` | Open two-way diff (OURS vs THEIRS) |
-| `:YDiff3` | Open three-way diff (needs diff3/zdiff3 style) |
 | `:YDiffClose` | Close the diff view |
 | `:YDiffOurs` | Keep OURS, close diff |
 | `:YDiffTheirs` | Take THEIRS, close diff |
 | `:YDiffBoth` | Restore original to manually combine |
 | `:YDiffResolved` | Save and mark resolved (`git add`) |
+| `:YDiffNext` | Next conflict file (closes current diff) |
+| `:YDiffPrev` | Previous conflict file |
+| `:YDiffAbort` | Abort merge (`:cq`) |
 
 ### Keymaps (in diff view)
 
 | Key | Action |
 |-----|--------|
 | `]c` / `[c` | Next/prev diff hunk (vim builtin) |
+| `]q` / `[q` | Next/prev conflict file |
 | `:diffget` | Pull hunk from THEIRS |
 | `<leader>co` | Keep OURS |
 | `<leader>ct` | Take THEIRS |
