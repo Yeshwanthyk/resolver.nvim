@@ -2,52 +2,42 @@
 
 ## Overview
 
-Two-way diff viewer for Git merge conflicts. Opens all conflicted files in quickfix, then shows OURS vs THEIRS side-by-side.
+Two-way diff viewer for Git merge conflicts. Shows OURS (left, editable) vs THEIRS (right, read-only).
 
 ## Files
 
 ```
-lua/ydiffconflicts/init.lua   # All logic (~200 lines)
+lua/ydiffconflicts/init.lua   # All logic (~170 lines)
 plugin/ydiffconflicts.lua     # Loader
 ```
 
-## Key Functions
-
-| Function | Purpose |
-|----------|---------|
-| `get_conflicted_files()` | Runs `git diff --name-only --diff-filter=U` |
-| `populate_quickfix()` | Builds quickfix list with conflict counts |
-| `open_diff_view()` | Creates OURS (left) / THEIRS (right) split |
-| `close_diff_view()` | Closes THEIRS buffer, turns off diff mode |
-| `choose_all(side)` | Takes ours or theirs entirely |
-| `mark_resolved()` | Saves file and runs `git add` |
-| `start()` | Main entry: quickfix + auto-open first file |
-
 ## Commands
 
-- `:YDiffList` — Start resolving (quickfix + first file)
-- `:YDiffOpen` — Open diff view for current file
-- `:YDiffClose` — Close diff view
+- `:YDiff` — Open two-way diff
+- `:YDiffClose` — Close diff view  
 - `:YDiffOurs` — Keep ours
 - `:YDiffTheirs` — Take theirs
-- `:YDiffResolved` — Mark file resolved
+- `:YDiffBoth` — Combine both
+- `:YDiffRestore` — Restore original
+- `:YDiffPick` — File picker (snacks.nvim)
 
-## How Two-Way Diff Works
+## Keymaps (in diff)
 
-1. Copy buffer lines to new THEIRS buffer
-2. Strip conflict markers differently for each side:
-   - OURS: Remove `=======` through `>>>>>>>` (and `|||||||` in diff3)
-   - THEIRS: Remove `<<<<<<<` through `=======`
-3. Run `:diffthis` on both
-4. User edits OURS, uses `:diffget` to pull from THEIRS
-5. Save writes back to original file
+`<leader>mo/mt/mb/mr/mp`
+
+## How It Works
+
+1. Read file with conflict markers from disk
+2. Parse with state machine: NORMAL → OURS → BASE → THEIRS → NORMAL
+3. Extract OURS and THEIRS versions (strip markers)
+4. Show side-by-side with `:diffthis`
+5. User edits left side, saves with `:w`
 
 ## Testing
 
 ```bash
-./test/make-conflicts.sh /tmp/test
-cd /tmp/test
-nvim -c YDiffList
+cd /path/to/repo/with/conflicts
+nvim -c YDiffPick
 ```
 
 ## Origin
